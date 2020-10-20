@@ -130,3 +130,6 @@ dmypy.json
 
 # VS Code
 .vscode/
+
+# Downloaded images
+duyaoSS_images/
