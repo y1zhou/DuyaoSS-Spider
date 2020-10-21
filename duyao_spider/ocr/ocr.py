@@ -7,7 +7,20 @@ from PIL import Image
 from tqdm import tqdm
 
 ROW_HEIGHT = 30  # all rows are approximately 30px
-AVG_SPEED_COL_WIDTH = 90  # column width of the AvgSpeed column
+AVG_SPEED_COL_WIDTH = 100  # column width of the AvgSpeed column
+DEFAULT_TESSERACT_CONFIG = r"--psm 7 --oem 3"
+TESSERACT_LANG = ["chi_sim+eng", "chi_sim+eng", "eng", "eng", "eng", "eng", "eng"]
+
+TESSEDIT_CHAR_WHITELIST = {
+    2: r"0123456789%.",
+    3: r"0123456789.",
+    4: r"0123456789.",
+    5: r"0123456789.KMGB",
+}
+
+TESSEDIT_CHAR_BLACKLIST = {
+    6: r"|",
+}
 
 
 def read_img(img_path: str, crop_header: bool = True) -> np.ndarray:
@@ -102,18 +115,26 @@ def get_intersections(
 
 def text_ocr(
     img: np.ndarray,
-    x1: int,
-    x2: int,
-    y1: int,
-    y2: int,
     lang: str = "chi_sim+eng",
-    oem_psm_config: str = r"--psm 7 --oem 3",
+    oem_psm_config: str = DEFAULT_TESSERACT_CONFIG,
 ) -> str:
     # psm 7: treat the image as a single text line
     # oem 3: use default OCR engines
-    cell = img[y1:y2, x1:x2]
-    text = pytesseract.image_to_string(cell, lang=lang, config=oem_psm_config)
+    text = pytesseract.image_to_string(img, lang=lang, config=oem_psm_config)
     return text.strip()
+
+
+def crop_image(img: np.ndarray, x1: int, x2: int, y1: int, y2: int) -> np.ndarray:
+    return img[y1:y2, x1:x2]
+
+
+def get_col_ocr_config(j: int) -> str:
+    config = DEFAULT_TESSERACT_CONFIG
+    if j in TESSEDIT_CHAR_WHITELIST:
+        config += f" -c tessedit_char_whitelist='{TESSEDIT_CHAR_WHITELIST[j]}'"
+    if j in TESSEDIT_CHAR_BLACKLIST:
+        config += f" -c tessedit_char_blacklist='{TESSEDIT_CHAR_BLACKLIST[j]}'"
+    return config
 
 
 def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
@@ -125,23 +146,26 @@ def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
     rows, cols = get_intersections(img_bin, hlines, vlines)
 
     res: List[List[str]] = []
-    # Skip last two rows
-    for i in tqdm(range(len(rows) - 3)):
+    ocr_configs = [get_col_ocr_config(j) for j in range(len(cols) - 1)]
+    # Skip first row and last two rows
+    for i in tqdm(range(1, len(rows) - 3)):
         row: List[str] = []
         for j in range(len(cols) - 1):
             x1, x2 = cols[j], cols[j + 1]
             y1, y2 = rows[i], rows[i + 1]
-            text = text_ocr(img_gray, x1, x2, y1, y2)
+            cell = crop_image(img_gray, x1, x2, y1, y2)
+
+            text = text_ocr(cell, lang=TESSERACT_LANG[j], oem_psm_config=ocr_configs[j])
             row.append(text)
         res.append(row)
 
     # Last two rows
     footer: List[str] = []
     for i in range(len(rows) - 3, len(rows) - 1):
-        x1, x2 = 2, img_gray.shape[1] - 3
+        x1, x2 = 2, img_gray.shape[1] - 3  # entire row
         y1, y2 = rows[i], rows[i + 1]
-
-        text = text_ocr(img_gray, x1, x2, y1, y2, lang="eng")
+        cell = crop_image(img_gray, x1, x2, y1, y2)
+        text = text_ocr(cell, lang="eng")
         footer.append(text)
 
     return (res, footer)
