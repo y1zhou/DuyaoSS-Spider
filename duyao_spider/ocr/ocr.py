@@ -6,11 +6,14 @@ import pytesseract
 from PIL import Image
 from tqdm import tqdm
 
+ROW_HEIGHT = 30  # all rows are approximately 30px
+AVG_SPEED_COL_WIDTH = 90  # column width of the AvgSpeed column
+
 
 def read_img(img_path: str, crop_header: bool = True) -> np.ndarray:
     img = cv.imread(img_path)
     if crop_header:
-        img = img[30:]  # each row should have height ~30px
+        img = img[ROW_HEIGHT:]
     return img
 
 
@@ -31,7 +34,7 @@ def convert_to_bw(img: np.ndarray, adaptive_threshold: bool = True) -> np.ndarra
 def enhance_borders(img: np.ndarray, naive: bool = False) -> np.ndarray:
     if naive:
         height, width = img.shape[:2]
-        rows = [x for x in range(height + 1) if x % 30 == 0]
+        rows = [x for x in range(height + 1) if x % ROW_HEIGHT == 0]
         for r in rows:
             cv.line(img, (0, r), (width - 1, r), (0, 0, 0), 1)
     else:
@@ -52,13 +55,14 @@ def detect_lines_morph(
 ) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols = img_bin.shape[:2]
 
-    # Create structure element for extracting lines through morphology operations
-    ## horizontal lines
-    h_kernel = cv.getStructuringElement(cv.MORPH_RECT, (cols // scale, 1))
-    horizontal_lines = cv.erode(img_bin, h_kernel, iterations=1)
-    horizontal_lines = cv.dilate(horizontal_lines, h_kernel, iterations=1)
+    # horizontal lines
+    horizontal_lines = np.zeros((rows, cols), np.uint8)
+    i_hlines = [x for x in range(rows) if x % ROW_HEIGHT == 0]
+    if rows - i_hlines[-1] > 20:
+        i_hlines.append(rows - 1)
+    horizontal_lines[i_hlines] = 255
 
-    ## vertical lines
+    # Create structure element for extracting vertical lines through morphology operations
     v_kernel = cv.getStructuringElement(cv.MORPH_RECT, (1, rows // scale))
     vertical_lines = cv.erode(img_bin, v_kernel, iterations=1)
     vertical_lines = cv.dilate(vertical_lines, v_kernel, iterations=1)
@@ -72,12 +76,10 @@ def get_intersections(
     cross_points = cv.bitwise_and(hlines, vlines)
 
     h, w = img_bin.shape[:2]
-    total_rows = h // 30
+    total_rows = h // ROW_HEIGHT
 
     # we can get the rows easily
-    rows = [x for x in range(h) if x % 30 == 0]
-    if h - rows[-1] > 20:
-        rows.append(h - 1)
+    rows = np.where(hlines[:, 0] != 0)[0]
 
     # for columns, only consider the rows where the horizontal lines are.
     # if there's lots of (>20%) white pixels in a column at those rows,
@@ -89,9 +91,9 @@ def get_intersections(
 
     # a hack to split the last two columns
     # the colored "AvgSpeed" column is hard to recognize
-    if w - cols[-1] > 90:  # missing a column
+    if w - cols[-1] > AVG_SPEED_COL_WIDTH:  # missing a column
         if w - cols[-1] > 200:
-            cols = np.append(cols, [cols[-1] + 90, w - 1])
+            cols = np.append(cols, [cols[-1] + AVG_SPEED_COL_WIDTH, w - 1])
         else:
             cols = np.append(cols, w - 1)
 
