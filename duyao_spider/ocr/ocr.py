@@ -1,10 +1,17 @@
-from typing import Tuple
+from typing import List, Tuple
 
 import cv2 as cv
 import numpy as np
 import pytesseract
 from PIL import Image
 from tqdm import tqdm
+
+
+def read_img(img_path: str, crop_header: bool = True) -> np.ndarray:
+    img = cv.imread(img_path)
+    if crop_header:
+        img = img[30:]  # each row should have height ~30px
+    return img
 
 
 def convert_to_grayscale(img: np.ndarray) -> np.ndarray:
@@ -21,16 +28,6 @@ def convert_to_bw(img: np.ndarray, adaptive_threshold: bool = True) -> np.ndarra
     return blackAndWhiteImage
 
 
-def read_img(
-    img_path: str, crop_header: bool = True, enhance_rows: bool = False
-) -> np.ndarray:
-    img = cv.imread(img_path)
-    if crop_header:
-        # each row should have height ~30px
-        img = img[30:]
-    return img
-
-
 def enhance_borders(img: np.ndarray, naive: bool = False) -> np.ndarray:
     if naive:
         height, width = img.shape[:2]
@@ -43,11 +40,6 @@ def enhance_borders(img: np.ndarray, naive: bool = False) -> np.ndarray:
         upper_gray = np.array([179, 50, 200], np.uint8)
         mask_gray = cv.inRange(hsv, lower_gray, upper_gray)
         img = cv.bitwise_and(img, img, mask=~mask_gray)
-        # black_pixel = np.array([0, 0, 0], np.uint8)
-        # for i, row in enumerate(img):
-        #     for j, pixel in enumerate(row):
-        #         if pixel[0] < 200 and np.all(pixel == pixel[0]):
-        #             img[i][j] = black_pixel
     return img
 
 
@@ -56,7 +48,7 @@ def show_img(fig: np.ndarray) -> Image.Image:
 
 
 def detect_lines_morph(
-    img_bin: np.ndarray, scale: int = 50
+    img_bin: np.ndarray, scale: int = 30
 ) -> Tuple[np.ndarray, np.ndarray]:
     rows, cols = img_bin.shape[:2]
 
@@ -82,15 +74,26 @@ def get_intersections(
     h, w = img_bin.shape[:2]
     total_rows = h // 30
 
+    # we can get the rows easily
     rows = [x for x in range(h) if x % 30 == 0]
-    rows.append(h - 1)
+    if h - rows[-1] > 20:
+        rows.append(h - 1)
 
-    cols = np.sum(cross_points, axis=0)
-    cols = np.where(cols > 255 * total_rows // 10)[0]
+    # for columns, only consider the rows where the horizontal lines are.
+    # if there's lots of (>20%) white pixels in a column at those rows,
+    # then there's probably a vertical line.
+    cols = np.sum(cross_points[rows], axis=0)
+    cols = np.where(cols > 255 * total_rows // 5)[0]
     cols_diff = np.diff(cols)
-    cols = cols[np.where(cols_diff > 10)[0]]
-    if w - cols[-1] > 90:
-        cols = np.append(cols, w - 1)
+    cols = cols[np.where(cols_diff > 10)[0]]  # remove clusters
+
+    # a hack to split the last two columns
+    # the colored "AvgSpeed" column is hard to recognize
+    if w - cols[-1] > 90:  # missing a column
+        if w - cols[-1] > 200:
+            cols = np.append(cols, [cols[-1] + 90, w - 1])
+        else:
+            cols = np.append(cols, w - 1)
 
     return (rows, cols)
 
@@ -108,4 +111,35 @@ def text_ocr(
     # oem 3: use default OCR engines
     cell = img[y1:y2, x1:x2]
     text = pytesseract.image_to_string(cell, lang=lang, config=oem_psm_config)
-    return text
+    return text.strip()
+
+
+def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
+    img = enhance_borders(img)
+    img_gray = convert_to_grayscale(img)
+    img_bin = convert_to_bw(~img_gray)
+
+    hlines, vlines = detect_lines_morph(img_bin)
+    rows, cols = get_intersections(img_bin, hlines, vlines)
+
+    res: List[List[str]] = []
+    # Skip last two rows
+    for i in tqdm(range(len(rows) - 3)):
+        row: List[str] = []
+        for j in range(len(cols) - 1):
+            x1, x2 = cols[j], cols[j + 1]
+            y1, y2 = rows[i], rows[i + 1]
+            text = text_ocr(img_gray, x1, x2, y1, y2)
+            row.append(text)
+        res.append(row)
+
+    # Last two rows
+    footer: List[str] = []
+    for i in range(len(rows) - 3, len(rows) - 1):
+        x1, x2 = 2, img_gray.shape[1] - 3
+        y1, y2 = rows[i], rows[i + 1]
+
+        text = text_ocr(img_gray, x1, x2, y1, y2, lang="eng")
+        footer.append(text)
+
+    return (res, footer)
