@@ -7,7 +7,7 @@ from PIL import Image
 from tqdm import tqdm
 
 ROW_HEIGHT = 30  # all rows are approximately 30px
-AVG_SPEED_COL_WIDTH = 100  # column width of the AvgSpeed column
+AVG_SPEED_COL_WIDTH = 90  # column width of the AvgSpeed column
 DEFAULT_TESSERACT_CONFIG = r"--psm 7 --oem 3"
 TESSERACT_LANG = ["chi_sim+eng", "chi_sim+eng", "eng", "eng", "eng", "eng", "eng"]
 
@@ -15,11 +15,11 @@ TESSEDIT_CHAR_WHITELIST = {
     2: r"0123456789%.",
     3: r"0123456789.",
     4: r"0123456789.",
-    5: r"0123456789.KMGB",
+    5: r"0123456789.KMGBNA",
 }
 
 TESSEDIT_CHAR_BLACKLIST = {
-    6: r"|",
+    6: r"|{}[]I",
 }
 
 
@@ -59,7 +59,9 @@ def enhance_borders(img: np.ndarray, naive: bool = False) -> np.ndarray:
     return img
 
 
-def show_img(fig: np.ndarray) -> Image.Image:
+def show_img(fig: np.ndarray, cvt_rgb: bool = False) -> Image.Image:
+    if cvt_rgb:
+        fig = cv.cvtColor(fig, cv.COLOR_BGR2RGB)
     return Image.fromarray(fig)
 
 
@@ -150,7 +152,10 @@ def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
     # Skip first row and last two rows
     for i in tqdm(range(1, len(rows) - 3)):
         row: List[str] = []
-        for j in range(len(cols) - 1):
+
+        # skip the first "group" column as we already have the information
+        # from scrapy
+        for j in range(1, len(cols) - 1):
             x1, x2 = cols[j], cols[j + 1]
             y1, y2 = rows[i], rows[i + 1]
             cell = crop_image(img_gray, x1, x2, y1, y2)
