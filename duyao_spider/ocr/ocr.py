@@ -8,18 +8,15 @@ from tqdm import tqdm
 
 ROW_HEIGHT = 30  # all rows are approximately 30px
 AVG_SPEED_COL_WIDTH = 90  # column width of the AvgSpeed column
+UDPNAT_COL_WIDTH = 200  # column width of the "UDP NAT Type" column
 DEFAULT_TESSERACT_CONFIG = r"--psm 7 --oem 3"
-TESSERACT_LANG = ["chi_sim+eng", "chi_sim+eng", "eng", "eng", "eng", "eng", "eng"]
 
 TESSEDIT_CHAR_WHITELIST = {
-    2: r"0123456789%.",
-    3: r"0123456789.",
-    4: r"0123456789.",
-    5: r"0123456789.KMGBNA",
-}
-
-TESSEDIT_CHAR_BLACKLIST = {
-    6: r"|{}[]I",
+    2: r"0123456789%.",  # Loss
+    3: r"0123456789.",  # Ping
+    4: r"0123456789.",  # Google Ping
+    5: r"0123456789.KMGBNA",  # AvgSpeed (and MaxSpeed)
+    -1: r"- ABDFNOPRSTUacdeiklmnoprstuwy",  # UDP NAT Type; see https://github.com/arantonitis/pynat/blob/c5fe553bbbb79deecedcce83c4d4d2974b139355/pynat.py#L51-L59
 }
 
 
@@ -106,11 +103,11 @@ def get_intersections(
 
     # a hack to split the last two columns
     # the colored "AvgSpeed" column is hard to recognize
-    if w - cols[-1] > AVG_SPEED_COL_WIDTH:  # missing a column
-        if w - cols[-1] > 200:
-            cols = np.append(cols, [cols[-1] + AVG_SPEED_COL_WIDTH, w - 1])
-        else:
-            cols = np.append(cols, w - 1)
+    while w - cols[-1] > UDPNAT_COL_WIDTH:
+        cols = np.append(cols, cols[-1] + AVG_SPEED_COL_WIDTH)
+
+    if w - cols[-1] > AVG_SPEED_COL_WIDTH:
+        cols = np.append(cols, w - 1)
 
     return (rows, cols)
 
@@ -130,13 +127,30 @@ def crop_image(img: np.ndarray, x1: int, x2: int, y1: int, y2: int) -> np.ndarra
     return img[y1:y2, x1:x2]
 
 
-def get_col_ocr_config(j: int) -> str:
-    config = DEFAULT_TESSERACT_CONFIG
-    if j in TESSEDIT_CHAR_WHITELIST:
-        config += f" -c tessedit_char_whitelist='{TESSEDIT_CHAR_WHITELIST[j]}'"
-    if j in TESSEDIT_CHAR_BLACKLIST:
-        config += f" -c tessedit_char_blacklist='{TESSEDIT_CHAR_BLACKLIST[j]}'"
-    return config
+def get_col_ocr_config(j: int) -> List[str]:
+    """
+    j is the total number of columns. There are three cases:
+      - j=6: AvgSpeed column at the end.
+      - j=7: AvgSpeed and UDP NAT Type columns at the end.
+      - j=8: AvgSpeed, MaxSpeed and UDP NAT Type.
+    """
+    # first 6 columns are always fixed
+    res = []
+    for i in range(6):
+        config = DEFAULT_TESSERACT_CONFIG
+        if i in TESSEDIT_CHAR_WHITELIST:
+            config += f" -c tessedit_char_whitelist='{TESSEDIT_CHAR_WHITELIST[i]}'"
+        res.append(config)
+
+    udp_nat_type_conf = f"{DEFAULT_TESSERACT_CONFIG} -c tessedit_char_whitelist='{TESSEDIT_CHAR_WHITELIST[-1]}'"
+    if j == 7:
+        res.append(udp_nat_type_conf)
+    elif j == 8:  # extra MaxSpeed column
+        res += [res[-1], udp_nat_type_conf]
+    else:
+        raise ValueError("More than 8 columns detected.")
+
+    return res
 
 
 def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
@@ -148,7 +162,7 @@ def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
     rows, cols = get_intersections(img_bin, hlines, vlines)
 
     res: List[List[str]] = []
-    ocr_configs = [get_col_ocr_config(j) for j in range(len(cols) - 1)]
+    ocr_configs = get_col_ocr_config(len(cols) - 1)
     # Skip first row and last two rows
     for i in tqdm(range(1, len(rows) - 3)):
         row: List[str] = []
@@ -160,7 +174,8 @@ def img_to_csv(img: np.ndarray) -> Tuple[List[List[str]], List[str]]:
             y1, y2 = rows[i], rows[i + 1]
             cell = crop_image(img_gray, x1, x2, y1, y2)
 
-            text = text_ocr(cell, lang=TESSERACT_LANG[j], oem_psm_config=ocr_configs[j])
+            lang = "chi_sim+eng" if j < 2 else "eng"
+            text = text_ocr(cell, lang=lang, oem_psm_config=ocr_configs[j])
             row.append(text)
         res.append(row)
 
