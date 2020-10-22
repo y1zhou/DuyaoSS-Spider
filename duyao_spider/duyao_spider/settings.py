@@ -70,6 +70,21 @@ ITEM_PIPELINES = {
 # Configure the target storage setting
 # See https://docs.scrapy.org/en/latest/topics/media-pipeline.html
 IMAGES_STORE = "duyaoSS_images"
+IMAGES_EXPIRES = 7  # images expire after 7 days
+
+# Store scraped metadata of images
+# See https://docs.scrapy.org/en/latest/topics/feed-exports.html
+FEEDS = {
+    "downloaded_imgs.json": {
+        "format": "json",
+        "encoding": "utf8",
+        "store_empty": False,
+        "fields": ["provider", "images"],
+        "indent": 4,
+        "overwrite": True,
+        "item_export_kwargs": {"export_empty_fields": True,},
+    }
+}
 
 # Enable and configure the AutoThrottle extension (disabled by default)
 # See https://docs.scrapy.org/en/latest/topics/autothrottle.html
