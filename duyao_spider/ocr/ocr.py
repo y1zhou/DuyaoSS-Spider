@@ -143,10 +143,11 @@ def get_col_ocr_config(j: int) -> List[str]:
         res.append(config)
 
     udp_nat_type_conf = f"{DEFAULT_TESSERACT_CONFIG} -c tessedit_char_whitelist='{TESSEDIT_CHAR_WHITELIST[-1]}'"
-    if j == 7:
-        res.append(udp_nat_type_conf)
-    elif j == 8:  # extra MaxSpeed column
-        res += [res[-1], udp_nat_type_conf]
+    if j <= 8:
+        if j == 7:
+            res.append(udp_nat_type_conf)
+        elif j == 8:  # extra MaxSpeed column
+            res += [res[-1], udp_nat_type_conf]
     else:
         raise ValueError(f"Detected {j} (>8) columns.")
 

@@ -26,11 +26,12 @@ def remove_provider_numbering(provider: str) -> str:
 def csv_to_df(rows: List[List[str]], provider: str, save: Path = None) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
-    new_colnames = COLNAMES.copy()
-    if df.shape[1] == 6:
-        new_colnames.append("udp_nat_type")
-    elif df.shape[1] == 7:  # extra max_speed column
-        new_colnames = new_colnames + ["max_speed", "udp_nat_type"]
+    if df.shape[1] <= 7:
+        new_colnames = COLNAMES.copy()
+        if df.shape[1] == 6:
+            new_colnames.append("udp_nat_type")
+        elif df.shape[1] == 7:  # extra max_speed column
+            new_colnames = new_colnames + ["max_speed", "udp_nat_type"]
     else:
         raise ValueError(f"Can't assign column names to {df.shape[1]} (>8) columns.")
 
