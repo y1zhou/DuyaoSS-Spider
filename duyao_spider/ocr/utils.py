@@ -10,7 +10,6 @@ COLNAMES = [
     "ping",
     "google_ping",
     "avg_speed",
-    "udp_nat_type",
 ]
 
 
@@ -27,8 +26,16 @@ def remove_provider_numbering(provider: str) -> str:
 def csv_to_df(rows: List[List[str]], provider: str, save: Path = None) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
-    df.columns = COLNAMES[: df.shape[1]]
-    df.insert(loc=0, column="group", value=provider)
+    new_colnames = COLNAMES
+    if df.shape[1] == 6:
+        new_colnames.append("udp_nat_type")
+    elif df.shape[1] == 7:  # extra max_speed column
+        new_colnames = new_colnames + ["max_speed", "udp_nat_type"]
+    else:
+        raise ValueError("More than 8 columns.")
+
+    df.columns = new_colnames
+    df.insert(loc=0, column="provider", value=provider)
 
     if save:
         df.to_csv(save, index=False)
