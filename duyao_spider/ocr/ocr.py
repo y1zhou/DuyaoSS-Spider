@@ -148,7 +148,7 @@ def get_col_ocr_config(j: int) -> List[str]:
     elif j == 8:  # extra MaxSpeed column
         res += [res[-1], udp_nat_type_conf]
     else:
-        raise ValueError("More than 8 columns detected.")
+        raise ValueError(f"Detected {j} (>8) columns.")
 
     return res
 

@@ -15,7 +15,8 @@ CSV_STORE = Path("duyaoSS_tables")
 if __name__ == "__main__":
     # Update images
     if UPDATE_IMAGES:
-        IMG_INFO.unlink()
+        if IMG_INFO.is_file():
+            IMG_INFO.unlink()
         spider = CrawlerProcess(get_project_settings())
         spider.crawl("DuyaoSS")
         spider.start()
